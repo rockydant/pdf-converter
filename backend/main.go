@@ -21,6 +21,12 @@ import (
 
 var db *sql.DB
 
+type PdfFile struct {
+	ID      int    `json:"id"`
+	Title   string `json:"title"`
+	Content string `json:"content"`
+}
+
 func initDB() {
 	var err error
 	dataSourceName := "goUser:12345678@tcp(127.0.0.1:3306)/pdfreader"
@@ -37,6 +43,7 @@ func initDB() {
 }
 
 func main() {
+	initDB()
 	router := gin.Default()
 
 	router.Use(cors.New(cors.Config{
@@ -81,7 +88,47 @@ func main() {
 			panic(err)
 		}
 
+		// Save to database
+		stmt, err := db.Prepare("INSERT INTO files(title, content) VALUES(?, ?)")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer stmt.Close()
+
+		_, err = stmt.Exec(dst, content)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
 		c.IndentedJSON(http.StatusOK, content)
+	})
+
+	router.GET("/files", func(c *gin.Context) {
+		rows, err := db.Query("SELECT id, title, content FROM pdfreader.files")
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		defer rows.Close()
+
+		var pdfFiles []PdfFile
+		for rows.Next() {
+			var pdfFile PdfFile
+			if err := rows.Scan(&pdfFile.ID, &pdfFile.Title, &pdfFile.Content); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			pdfFiles = append(pdfFiles, pdfFile)
+		}
+
+		if err := rows.Err(); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, pdfFiles)
 	})
 
 	router.Run(":12345")
